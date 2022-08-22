@@ -19,6 +19,10 @@ pip install tensorboard
 
 Run the test.py to generate a few sample trajectories of the Ornstein-Uhlenbeck process with uniformly sampled parameters and see the estimation results.
 
-2. train
+2. training
 
 Run the train.py to train a new model.
+
+3. Modification
+
+Go to the config.py to change setting.
