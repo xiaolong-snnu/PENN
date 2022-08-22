@@ -8,12 +8,17 @@ Parameter estimation neural network (PENN) is a data-driven method that can esti
 # Installation
 
 Pytorch should be installed first. Then download the code and run the following command to install necessary dependence.
+
 pip install signalz 
+
 pip install tensorboard
 
 # Usage
+
 1. test
+
 Run the test.py to generate a few sample trajectories of the Ornstein-Uhlenbeck process with uniformly sampled parameters and see the estimation results.
 
 2. train
+
 Run the train.py to train a new model.
