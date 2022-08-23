@@ -17,7 +17,7 @@ pip install tensorboard
 
 1. test
 
-Run the test.py to generate a few sample trajectories of the Ornstein-Uhlenbeck process with uniformly sampled parameters and see the estimation results.
+Run the test.py to generate a few sample trajectories of the Ornstein-Uhlenbeck process with uniformly sampled parameters and see the estimation results on a pre-trained model named model_00988.ckpt.
 
 2. training
 
@@ -25,4 +25,4 @@ Run the train.py to train a new model.
 
 3. Modification
 
-Go to the config.py to change setting.
+Go to the config.py to change setting. The model model_00988.ckpt was trained using 'train_num'=600,000 trajectories for 'num_epochs' = 988 epochs.
