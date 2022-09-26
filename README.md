@@ -7,7 +7,7 @@ Parameter estimation neural network (PENN) is a data-driven method that can esti
 
 # Installation
 
-Pytorch should be installed first. Then download the code and run the following command to install necessary dependence.
+The code was sucessfully tested on Ubuntu 18.04+Anaconda+CUDA 10.2+PyTorch 1.5.0 or 1.8.1 with a RTX 2080Ti GPU. An error occurred when we tested it on an environment using CUDA 11. Please install a conda environment with PyTorch and run the following commmands for generating Lévy noise and recording logs. 
 
 pip install signalz 
 
