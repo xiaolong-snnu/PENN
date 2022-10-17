@@ -20,34 +20,18 @@ from data import sample_data
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-class MyDataset_varying_length_padding_h(Dataset):
-    def __init__(self, file_name, mode='train', omit_x=-1, max_sample=-1):
-        super(MyDataset_varying_length_padding_h, self).__init__()
-        def get_omit_x(X0, omit_x):
-            if isinstance(omit_x, int):
-                if omit_x < 0:
-                    X = [torch.from_numpy(x) for x in X0]  # file_name不是文件，是数据块，用于测试
-                else:
-                    idx = [i for i in range(X0[0].shape[1]) if not i == omit_x]
-                    X = [torch.from_numpy(x[:, idx]) for x in X0]
-            elif isinstance(omit_x, list):
-                idx = [i for i in range(X0[0].shape[1]) if not i in omit_x]
-                X = [torch.from_numpy(x[:, idx]) for x in X0]
-            return X
+class MyDataset(Dataset):
+    def __init__(self, file_name, mode='train', max_sample=-1):
+        super(MyDataset, self).__init__()
         print('load data', file_name)
         self.param_dic = {}
-        if mode == 'raw':
-            # X = [torch.from_numpy(x) for x in file_name[0]]
-            X = get_omit_x(file_name[0], omit_x)
-            H = file_name[1]
-            Y = file_name[2]
-        else:
-            with open(file_name, "rb") as fp:
-                data_dic, param_dic = pickle.load(fp)
-            X = get_omit_x(data_dic['X'], omit_x)
-            Y = data_dic['Y']
-            H = data_dic['H']
-            self.param_dic = param_dic
+        with open(file_name, "rb") as fp:
+            data_dic, param_dic = pickle.load(fp)
+        X = data_dic['X']
+        X = [torch.from_numpy(x) for x in X]
+        Y = data_dic['Y']
+        H = data_dic['H']
+        self.param_dic = param_dic
 
         if max_sample > 0:
             print('*' * 50)
@@ -58,6 +42,11 @@ class MyDataset_varying_length_padding_h(Dataset):
             H = H[:max_sample]
         self.lengths = [_.shape[0] for _ in X]
         self.max_lengths = max(self.lengths)
+
+        # The idea to handle many length-variable trajectories simultaneously
+        # is to pad all trajectories to the same length, i.e., the longest length in the dataset
+        # and reject the elements beyond the true length by multiplying them by 0 in the vector Z
+
         self.X = torch.stack([nn.ZeroPad2d((0, 0, 0, self.max_lengths - _.shape[0]))(_) for _ in X])
         self.Y = torch.from_numpy(np.array(Y))
         self.H = torch.from_numpy(np.array(H).reshape((-1, 1)))
@@ -75,32 +64,34 @@ class MyDataset_varying_length_padding_h(Dataset):
         return self.X.shape[1], self.Y.shape[1]
 
     def __getitem__(self, index):
-        x = self.X[index, :]  # the trajectories
-        y = self.Y[index, :]  # the parameters
-        l = self.lengths[index, :]  # lengths of trajectories
-        h = self.H[index, :]  # spanning times
-        z = self.Z[index, :]  # the masks of the trajectories for varying lengths
+        x = self.X[index, :]  # The trajectories
+        y = self.Y[index, :]  # The parameters
+        l = self.lengths[index, :]  # Lengths of trajectories
+        h = self.H[index, :]  # Spanning times
+        z = self.Z[index, :]  # The ZERO masks of the trajectories for varying lengths
         return x, y, l, h, z
 
     def __len__(self):
         return len(self.X)
 
-class loss_l1_ou(nn.Module):
-    def __init__(self, fixed_alpha, weight):
+class loss_l1(nn.Module):
+    def __init__(self, weight):
         super().__init__()
         self.eps = torch.tensor(1e-8).to(device)
         self.loss = nn.L1Loss()
         self.weight = weight
-        self.fixed_alpha = fixed_alpha
 
     def forward(self, x, y):
-        mean_eta = torch.mean(self.loss(x[:, 0], y[:, 0]))
-        mean_sigma = torch.mean(self.loss(x[:, 1], y[:, 1]))
-        if self.fixed_alpha:
-            return self.weight[0] * mean_eta + self.weight[1] * mean_sigma, mean_eta, mean_sigma
-        else:
-            mean_alpha = torch.mean(self.loss(x[:, 2], y[:, 2]))
-            return self.weight[0] * mean_eta + self.weight[1] * mean_sigma + self.weight[2] * mean_alpha, mean_eta, mean_sigma, mean_alpha
+        M = x.shape[1]
+        loss = []
+        l_sum = 0
+        for i in range(M):
+            l = torch.mean(self.loss(x[:, i], y[:, i]))
+            l_sum = l_sum + l * self.weight[i]
+            loss.append(l)
+        loss.insert(0, l_sum)
+        # return [total_loss, loss_1, loss_2, ..., loss_m]
+        return loss
 
 class PENN(nn.Module):
     def __init__(self, in_dim, hidden_dim, n_layer, n_class, activation=''):
@@ -114,7 +105,6 @@ class PENN(nn.Module):
         print('init_param', self.init_param)
         self.n_layer = n_layer
         self.hidden_dim = hidden_dim
-        # self.lstm = nn.LSTM(in_dim, hidden_dim, n_layer, batch_first=True, dropout=0.5)
         self.lstm = nn.LSTM(in_dim, hidden_dim, n_layer, batch_first=True)
         self.nn_size = 20
 
@@ -147,11 +137,13 @@ class PENN(nn.Module):
         self.lstm.bias_hh_l0.data.zero_()
 
     def forward(self, x, l, h, z):
+        # PART 1: The LSTM
         _out, _ = self.lstm(x)
-        out = _out * z
+        out = _out * z  # Set the elements beyond the true length of the trajectory to zero
         out = torch.sum(out, dim=1)
-        out = torch.div(out, torch.mm(l, self.ones))
-        out = torch.cat([out, h], dim=1)
+        out = torch.div(out, torch.mm(l, self.ones))  # The average operator
+        out = torch.cat([out, h], dim=1)  # Concatenating the deep features from the LSTM and the time span
+        # PART 2: The FCNN
         for m in self.linears:
             out = m(out)
         return out
@@ -162,14 +154,13 @@ def train_net(config):
     sample_param = config.param['sample']
     print('train file:', sample_param['trai_file'])
     print('eval file:', sample_param['eval_file'])
-    train_data = MyDataset_varying_length_padding_h(sample_param['trai_file'], 'train', max_sample=300000)
-    eval_data = MyDataset_varying_length_padding_h(sample_param['eval_file'], 'eval')
+    train_data = MyDataset(sample_param['trai_file'], 'train')
+    eval_data = MyDataset(sample_param['eval_file'], 'eval')
     print('cuda availibility', torch.cuda.is_available())
     num_epochs = train_param['num_epochs']
     training_batch_size = train_param['batch_size']
     init_weight_file = train_param['init_weight_file']
     loss_weight = train_param['loss_weight']
-    fixed_alpha = train_param['fixed_alpha']
     # save_path = train_param['model_path']
     save_path = os.path.join(config.save_path, config.param['train']['architecture_name'])
     param_name = train_param['param_name']
@@ -182,6 +173,7 @@ def train_net(config):
     if not init_weight_file:
         model.init_weights()
     else:
+        # Continue a previous training
         print('=' * 50)
         print('load model', init_weight_file)
         print('=' * 50)
@@ -191,15 +183,7 @@ def train_net(config):
     optimizer = torch.optim.Adam(model.parameters(), lr=train_param['learning_rate'])
     if init_weight_file:
         optimizer.load_state_dict(model_CKPT['optimizer'])
-
-    if system == 'duffing':
-        criterion = loss_l1_duffing(fixed_alpha, loss_weight)
-    elif system == 'gene_switch':
-        criterion = loss_l1_gene_switch(fixed_alpha, loss_weight)
-    elif system == 'ou':
-        criterion = loss_l1_ou(fixed_alpha, loss_weight)
-    elif system == 'duffing_cos':
-        criterion = loss_l1_duffing_cos(fixed_alpha, loss_weight)
+    criterion = loss_l1(loss_weight)  # Here is the weighted L1 loss function
     train_loader = DataLoader(dataset=train_data, batch_size=training_batch_size, shuffle=True, num_workers=1, drop_last=train_param['drop_last'])
     eval_loader = DataLoader(dataset=eval_data, batch_size=len(eval_data), shuffle=False, num_workers=1)
 
@@ -207,8 +191,8 @@ def train_net(config):
         os.makedirs(os.path.join(save_path, 'runs'))
     writer = SummaryWriter(os.path.join(save_path, 'runs'))
 
-
     for i, (x_eval, y_eval, l_eval, h_eval, z_eval) in enumerate(eval_loader):
+        #  load all the evaluation dataset
         print(x_eval.shape)
         x_eval = x_eval.to(device)
         y_eval = y_eval.to(device)
@@ -223,29 +207,26 @@ def train_net(config):
             l = l.to(device)
             h = h.to(device)
             z = z.to(device)
-            # print('x.shape', x.shape)
             outputs = model(x, l, h, z)
-            # outputs = model(x, l)
             losses = criterion(outputs, y)
             optimizer.zero_grad()
             losses[0].backward()
             optimizer.step()
         used_time = time.time() - start_time
         if (epoch + 1) % 1 == 0:
+            # Save log to file
             with torch.no_grad():
                 outputs = model(x_eval, l_eval, h_eval, z_eval)
-                # outputs = model(x_eval, l_eval)
                 eval_errors = criterion(outputs, y_eval)
             writer.add_scalar('Loss/train', losses[0].item(), epoch + 1)
             writer.add_scalar('Loss/eval',  eval_errors[0].item(), epoch + 1)
             param_num = len(param_name)
             for rr in range(param_num):
                 writer.add_scalar('Loss/train_' + param_name[rr], losses[rr+1].item(), epoch + 1)
-                writer.add_scalar('Losses/eval_' + param_name[rr], eval_errors[rr+1].item(), epoch + 1)
+                writer.add_scalar('Loss/eval_' + param_name[rr], eval_errors[rr+1].item(), epoch + 1)
             writer.add_scalar('time/train', used_time, epoch + 1)
             print('Epoch [{}/{}], Loss: {:.4f}/{:.4f}, time: {:.1f}'
                   .format(epoch + 1, num_epochs, losses[0].item(), eval_errors[0], used_time))
-
             for param_group in optimizer.param_groups:
                 print('rate', param_group['lr'])
             if eval_errors[0] == np.nan:
@@ -266,13 +247,10 @@ def train_net(config):
             torch.save(save_dict, os.path.join(save_path, 'model/model_%05d.ckpt' % (epoch + 1)))
 
 def set_title(ax, string, r=0.27, fs=17):
-    # ax.set_title(title)
     min_y, max_y = ax.get_ylim()
     y = min_y - (max_y - min_y) * r
     min_x, max_x = ax.get_xlim()
     x = (min_x + max_x) * 0.5
-    # print('xlim', '%03f, %03f' % (min_x, max_x), 'ylim', '%03f, %03f' % (min_y, max_y))
-    # print('text', 'x', x, 'y', y)
     ax.text(x, y, string, horizontalalignment='center', verticalalignment='center', fontsize=fs)
 
 def test_net(config, saved_name='./data/temp.pkl', device_mode='cuda'):
@@ -288,8 +266,7 @@ def test_net(config, saved_name='./data/temp.pkl', device_mode='cuda'):
         batch_size = 10000
         model_CKPT = torch.load(model_file, map_location=torch.device('cuda'))
 
-    test_data = MyDataset_varying_length_padding_h(config.param['sample']['test_file'], 'test', omit_x=-1)
-    # test_loader = DataLoader(dataset=test_data, batch_size=len(test_data), shuffle=False, num_workers=1)
+    test_data = MyDataset(config.param['sample']['test_file'], 'test')
     test_loader = DataLoader(dataset=test_data, batch_size=batch_size, shuffle=False, num_workers=1)
 
     if model_CKPT['network'] == 'LSTM':
@@ -307,7 +284,6 @@ def test_net(config, saved_name='./data/temp.pkl', device_mode='cuda'):
     with torch.no_grad():
         model.eval()
         for i, (x, y, l, h, z) in enumerate(test_loader):
-            # print('x.shape', x.shape)
             _x = x.to(device)
             _l = l.to(device)
             _h = h.to(device)
@@ -366,26 +342,33 @@ def train(config, sample_generating=False):
     sample_data(config, mode='train', generating=sample_generating)
     train_net(config)
 
-
 def test(config, sample_generating=False):
     sample_data(config, mode='test', generating=sample_generating)
     gt, pred = test_net(config)
     draw_gt_vs_estimated(config)
 
-# for test_epoch in range(472, 0, -1):
-#     model_file = './data/%s/model/model_%05d.ckpt' % (model_name, test_epoch)
-#     # model_file = './data/%s/model/model_%05d.ckpt' % (model_name, test_epoch)
-#     if not os.path.exists(model_file):
-#         continue
-#     test_varying_length_padding(model_file, test_file, bn='before')
-
 if __name__ == '__main__':
-    system = 'ou'
-    config = Config(system_name=system)
+    # example 1: train the OU process
+    if 0:
+        system = 'ou'
+        config = Config(system_name=system)
+        train(config, sample_generating=True)
 
-    # Please modify the config file to set the path of the data
+    # example 2: train the Duffing system or the gene switch model
+    if 1:
+        system = 'duffing'  # or
+        system = 'gene_switch'
+        # system = 'ou'
+        config = Config(system_name=system)
+        config.param['sample']['train_num'] = 2000  # 200k is recommended
+        config.param['sample']['eval_num'] = 500
+        config.param['train']['architecture_name'] = 'model_1'
+        train(config, sample_generating=True)
 
-    train(config, sample_generating=True)
+    # You can also modify the config file. Please see
+    # the comments in the function 'init_ornstein_uhlenbeck' of the file config.py
+    # for more instruction of the settings
+
 
 
 
