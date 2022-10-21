@@ -3,7 +3,7 @@ Parameter estimation neural network for alpha-stable Lévy noise driven SDEs
 
 # Introduction
 
-Parameter estimation neural network (PENN) is a data-driven method that can estimate the governing parameters from a short sample trajectory of an alpha-stable Lévy noise-driven stochastic differential equation (SDE), including the system parameters and the parameters of the Lévy noise (noise intensity and the stability index). Please see the following article.
+Parameter estimation neural network (PENN) is a data-driven method that can estimate the governing parameters from a short sample trajectory of an alpha-stable Lévy noise-driven stochastic differential equation (SDE), including the system parameters and the parameters of the Lévy noise (noise intensity and the stability index). Please see the following article for the full detail.
 
 Wang, Xiaolong, Jing Feng, Qi Liu, Yongge Li and Yong Xu. Neural network-based parameter estimation of stochastic differential equations driven by Lévy noise. Physica A: Statistical Mechanics and its Applications 606 (2022): 128146. https://doi.org/10.1016/j.physa.2022.128146
 
