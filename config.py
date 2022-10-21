@@ -25,6 +25,8 @@ class Config:
             'N': [100, 400],
             'T': [5, 15],
 
+            # More than 100,000 trajectories are recommended to train a good model
+            # 5000 is too small. Only for debugging.
             'train_num': 5000,
             'eval_num': 500,
             'test_num': 2000,
@@ -39,7 +41,10 @@ class Config:
             'num_epochs': 100,
             # 'num_epochs': ,  # Just for debugging
             'learning_rate': 0.001,  # Used in the ADAM optimizer
-            'batch_size': 1600,  # If the error 'out of memory' occurs, decrease this.
+
+            # If the error 'out of memory' occurs, decrease the batch_size.
+            # 1600 is for the 2080Ti GPU with 11GB memory.
+            'batch_size': 1600,
 
             # The architecture of the PENN
             'lstm_layers': 4,
@@ -48,10 +53,11 @@ class Config:
             'drop_last': False,  # Throw away the last mini batch in each epoch
             # The weight in the loss function for every parameter.
             # It should be inversely proportional to the training range.
+            # You can also add the weights of parameters that are hard to learn.
             'loss_weight': [3, 20, 1],
-            'param_name': ['eta', 'epsilon', 'alpha'],  # parameter names for plotting
+            'param_name': ['eta', 'epsilon', 'alpha'],  # Parameter names for plotting
             'param_name_latex': ['$\\eta$', '$\\epsilon$', '$\\alpha$'],
-            'architecture_name': 'ou_model_1'  # change this to create a new folder to save models and logs
+            'architecture_name': 'ou_model_1'  # Change this to create a new folder to save models and logs
         }
         test = {
             'last_epoch': False,

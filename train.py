@@ -349,25 +349,35 @@ def test(config, sample_generating=False):
 
 if __name__ == '__main__':
     # example 1: train the OU process
-    if 0:
+    if 1:
         system = 'ou'
         config = Config(system_name=system)
         train(config, sample_generating=True)
 
     # example 2: train the Duffing system or the gene switch model
-    if 1:
-        system = 'duffing'  # or
+    if 0:
+        # select one system
+        system = 'duffing'
         system = 'gene_switch'
         # system = 'ou'
         config = Config(system_name=system)
-        config.param['sample']['train_num'] = 2000  # 200k is recommended
-        config.param['sample']['eval_num'] = 500
-        config.param['train']['architecture_name'] = 'model_1'
+        config.param['train']['architecture_name'] = 'model_1'  # you can change the setting here
+
+        # If the training data has been generated, set sample_generating=False.
+        # Otherwise the data may be repeatedly generated, which is time-consuming.
         train(config, sample_generating=True)
 
-    # You can also modify the config file. Please see
-    # the comments in the function 'init_ornstein_uhlenbeck' of the file config.py
-    # for more instruction of the settings
+    # TIP 1:
+    # You can modify the config file directly or modify the setting here. Before doing so,
+    # please read the comments in the function 'init_ornstein_uhlenbeck' of config.py
+    # for more instruction of the settings.
+
+    # TIP 2:
+    # If you want to add new systems. Please do the following things
+    # (a) Add a configuration function in config.py for the new system
+    # (b) Add a new key of sample_funcs in the function 'sample_data' of data.py
+
+
 
 
 
