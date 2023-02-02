@@ -15,13 +15,12 @@ import os
 import matplotlib.pyplot as plt
 import matplotlib
 import time
-from config import Config
 from data import sample_data
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 class MyDataset(Dataset):
-    def __init__(self, file_name, mode='train', max_sample=-1):
+    def __init__(self, file_name, max_sample=-1):
         super(MyDataset, self).__init__()
         print('load data', file_name)
         self.param_dic = {}
@@ -33,7 +32,7 @@ class MyDataset(Dataset):
         H = data_dic['H']
         self.param_dic = param_dic
 
-        if max_sample > 0:
+        if max_sample > 0:  # For debugging purpose
             print('*' * 50)
             print('max_sample =', max_sample)
             print('*' * 50)
@@ -139,36 +138,39 @@ class PENN(nn.Module):
     def forward(self, x, l, h, z):
         # PART 1: The LSTM
         _out, _ = self.lstm(x)
-        out = _out * z  # Set the elements beyond the true length of the trajectory to zero
+
+        # Set the elements beyond the true length of the trajectory to zero
+        out = _out * z
+
+        # The following two lines do the average operator
         out = torch.sum(out, dim=1)
-        out = torch.div(out, torch.mm(l, self.ones))  # The average operator
-        out = torch.cat([out, h], dim=1)  # Concatenating the deep features from the LSTM and the time span
+        out = torch.div(out, torch.mm(l, self.ones))
+
+        # Concatenating the deep features "out" from the LSTM and the time span "h"
+        out = torch.cat([out, h], dim=1)
+
         # PART 2: The FCNN
         for m in self.linears:
             out = m(out)
         return out
 
 def train_net(config):
-    system = config.system_name
-    train_param = config.param['train']
-    sample_param = config.param['sample']
-    print('train file:', sample_param['trai_file'])
-    print('eval file:', sample_param['eval_file'])
-    train_data = MyDataset(sample_param['trai_file'], 'train')
-    eval_data = MyDataset(sample_param['eval_file'], 'eval')
+    P = config.param
+    print('train file:', P['trai_file'])
+    print('eval file:', P['eval_file'])
     print('cuda availibility', torch.cuda.is_available())
-    num_epochs = train_param['num_epochs']
-    training_batch_size = train_param['batch_size']
-    init_weight_file = train_param['init_weight_file']
-    loss_weight = train_param['loss_weight']
-    # save_path = train_param['model_path']
-    save_path = os.path.join(config.save_path, config.param['train']['architecture_name'])
-    param_name = train_param['param_name']
+
+    train_data = MyDataset(P['trai_file'])
+    eval_data = MyDataset(P['eval_file'])
+
+    num_epochs = P['num_epochs']
+    init_weight_file = P['init_weight_file']  #
+    param_name = P['param_name']
     model = PENN(train_data.X.shape[2],
-                 train_param['lstm_fea_dim'],
-                 train_param['lstm_layers'],
+                 P['lstm_fea_dim'],
+                 P['lstm_layers'],
                  train_data.get_dim()[1],
-                 activation=train_param['activation']).to(device)
+                 activation=P['activation']).to(device)
     model = model.double()
     if not init_weight_file:
         model.init_weights()
@@ -178,28 +180,36 @@ def train_net(config):
         print('load model', init_weight_file)
         print('=' * 50)
         model_CKPT = torch.load(init_weight_file)
-        # model_CKPT = torch.load(train_param['init_weight_file'], map_location=torch.device('cpu'))
+        # model_CKPT = torch.load(init_weight_file, map_location=torch.device('cpu'))  # Try this if the previous one fails
         model.load_state_dict(model_CKPT['state_dict'])
-    optimizer = torch.optim.Adam(model.parameters(), lr=train_param['learning_rate'])
+    optimizer = torch.optim.Adam(model.parameters(), lr=P['learning_rate'])
     if init_weight_file:
         optimizer.load_state_dict(model_CKPT['optimizer'])
-    criterion = loss_l1(loss_weight)  # Here is the weighted L1 loss function
-    train_loader = DataLoader(dataset=train_data, batch_size=training_batch_size, shuffle=True, num_workers=1, drop_last=train_param['drop_last'])
+        init_epoch = model_CKPT['epoch']
+    else:
+        init_epoch = 0
+    criterion = loss_l1(P['loss_weight'])  # Here is the weighted L1 loss function
+    train_loader = DataLoader(dataset=train_data, batch_size=P['batch_size'], shuffle=True, num_workers=1, drop_last=P['drop_last'])
+
+    # The evaluation (eval) dataset is processed in only one batch. If it is too large,
+    # it should be processed in several batches (Not implemented).
     eval_loader = DataLoader(dataset=eval_data, batch_size=len(eval_data), shuffle=False, num_workers=1)
 
+    # Create the folder for saving the logs
+    save_path = os.path.join(config.save_path, P['architecture_name'])
     if not os.path.exists(os.path.join(save_path, 'runs')):
         os.makedirs(os.path.join(save_path, 'runs'))
     writer = SummaryWriter(os.path.join(save_path, 'runs'))
 
     for i, (x_eval, y_eval, l_eval, h_eval, z_eval) in enumerate(eval_loader):
-        #  load all the evaluation dataset
+        #  load all the eval dataset
         print(x_eval.shape)
         x_eval = x_eval.to(device)
         y_eval = y_eval.to(device)
         l_eval = l_eval.to(device)
         h_eval = h_eval.to(device)
         z_eval = z_eval.to(device)
-    for epoch in range(num_epochs):
+    for epoch in range(init_epoch, num_epochs):
         start_time = time.time()
         for i, (x, y, l, h, z) in enumerate(train_loader):
             x = x.to(device)
@@ -240,7 +250,7 @@ def train_net(config):
                 'epoch': epoch + 1,
                 'state_dict': model.state_dict(),
                 'optimizer': optimizer.state_dict(),
-                'param_dic': train_data.param_dic
+                'param_dic': P
             }
             if not os.path.exists(os.path.join(save_path, 'model')):
                 os.makedirs(os.path.join(save_path, 'model'))
@@ -255,7 +265,7 @@ def set_title(ax, string, r=0.27, fs=17):
 
 def test_net(config, saved_name='./data/temp.pkl', device_mode='cuda'):
     global device
-    model_file = config.param['test']['test_model_file']
+    model_file = config.param['test_model_file']
     print('start loading model', model_file)
     if device_mode == 'cpu' or not torch.cuda.is_available():
         device = torch.device('cpu')
@@ -266,15 +276,15 @@ def test_net(config, saved_name='./data/temp.pkl', device_mode='cuda'):
         batch_size = 10000
         model_CKPT = torch.load(model_file, map_location=torch.device('cuda'))
 
-    test_data = MyDataset(config.param['sample']['test_file'], 'test')
+    test_data = MyDataset(config.param['test_file'])
     test_loader = DataLoader(dataset=test_data, batch_size=batch_size, shuffle=False, num_workers=1)
 
     if model_CKPT['network'] == 'LSTM':
         param = model_CKPT['init_param']
         if 'activation' in model_CKPT:
-            model = PENN(param[0], param[1], param[2], param[3], model_CKPT['activation']).to(device)  # bigger
+            model = PENN(param[0], param[1], param[2], param[3], model_CKPT['activation']).to(device)
         else:
-            model = PENN(param[0], param[1], param[2], param[3], activation='elu').to(device)  # bigger
+            model = PENN(param[0], param[1], param[2], param[3], activation='elu').to(device)
     model = model.double()
     model.load_state_dict(model_CKPT['state_dict'])
     ys = []
@@ -301,7 +311,6 @@ def test_net(config, saved_name='./data/temp.pkl', device_mode='cuda'):
         save_data(saved_name, [ys, os])  # ground truth & predicted valued
         return y, o
 
-
 def load_data(file_name):
     with open(file_name, "rb") as fp:
         data = pickle.load(fp)
@@ -312,11 +321,10 @@ def save_data(file_name, data):
     with open(file_name, 'wb') as f:
         pickle.dump(data, f)
 
-
 def draw_gt_vs_estimated(config, saved_name='./data/temp.pkl'):
     # y: Ground truth values
     # o: Predicted values
-    param_name = config.param['train']['param_name_latex']
+    param_name = config.param['param_name_latex']
     y, o = load_data(saved_name)
     alphabet = ['a', 'b', 'c', 'd']
     title = ['(' + alphabet[i] + ') ' + param_name[i] for i in range(len(param_name))]
@@ -337,46 +345,38 @@ def draw_gt_vs_estimated(config, saved_name='./data/temp.pkl'):
     plt.cla()
 
 
-def train(config, sample_generating=False):
+def train(config):
     print(config.param)
-    sample_data(config, mode='train', generating=sample_generating)
     train_net(config)
 
-def test(config, sample_generating=False):
-    sample_data(config, mode='test', generating=sample_generating)
+def test(config):
     gt, pred = test_net(config)
     draw_gt_vs_estimated(config)
 
 if __name__ == '__main__':
-    # example 1: train the OU process
-    if 1:
-        system = 'ou'
-        config = Config(system_name=system)
-        train(config, sample_generating=True)
+    # Step 1: Select a config file.
+    # from config_ou import Config, sampling_func  # train the OU process
+    # from config_gene_switch import Config, sampling_func  # train the genetic toggle switch system
+    from config_duffing import Config, sampling_func  # train the Duffing system
 
-    # example 2: train the Duffing system or the gene switch model
-    if 0:
-        # select one system
-        system = 'duffing'
-        system = 'gene_switch'
-        # system = 'ou'
-        config = Config(system_name=system)
-        config.param['train']['architecture_name'] = 'model_1'  # you can change the setting here
+    config = Config()
 
-        # If the training data has been generated, set sample_generating=False.
-        # Otherwise the data may be repeatedly generated, which is time-consuming.
-        train(config, sample_generating=True)
-
-    # TIP 1:
-    # You can modify the config file directly or modify the setting here. Before doing so,
-    # please read the comments in the function 'init_ornstein_uhlenbeck' of config.py
+    # Step 2 (optional): Modify the config file or modify it here.
+    # Before doing it, please read the comments in config_ou.py
     # for more instruction of the settings.
 
-    # TIP 2:
-    # If you want to add new systems. Please do the following things
-    # (a) Add a configuration function in config.py for the new system
-    # (b) Add a new key of sample_funcs in the function 'sample_data' of data.py
+    # config.param['train_num'] = 1000
+    # config.param['eval_num'] = 1000
+    # config.param['architecture_name'] = 'debug'
+    # config.param['drop_last'] = False
+    # config.param['init_weight_file'] = './data/ou/debug/model/model_00015.ckpt'
 
+    # Step 3: Sample the data.
+    # Comment this line if the data has been generated.
+    sample_data(config, sampling_func, mode='train')
+
+    # Step 4: Train the PENN.
+    train(config)
 
 
 
