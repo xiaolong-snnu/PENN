@@ -23,6 +23,7 @@ if __name__ == '__main__':
     # from config_duffing import Config, sampling_func  # train the Duffing system
     # config = Config()
     # config.param['test_model_file'] = './data/duffing/model_00475.ckpt'
+    # config.param['test_model_file'] = './data/duffing/debug/model/model_00010.ckpt'
 
     # Step 2: Sample the test data.
     # Comment out this line if the data has been generated.

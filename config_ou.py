@@ -116,5 +116,6 @@ def trajectory_1d_ou(N, dt, mu, eta, epsilon, alpha, x0=0):
     data = np.zeros(N)
     data[0] = x0
     for i in range(N - 1):
+        # Euler method
         data[i + 1] = data[i] - eta * (data[i] - mu) * dt + epsilon * time_ratio * dL[i]
     return data

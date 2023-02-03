@@ -38,7 +38,7 @@ def generate_param(param, n, is_int=False):
         a = np.array([param] * n)
     return a
 
-def _sample_data(save_name, trajectory_number, param_dic, func, samples_per_temp_file=50000):
+def _sample_data(save_name, trajectory_number, param_dic, func, samples_per_temp_file=10000):
     path = os.path.dirname(save_name)
     if not os.path.exists(path):
         os.makedirs(path)

@@ -27,7 +27,7 @@ class Config:
             'T': [50, 100],
             'train_num': 200000,
             'eval_num': 1000,
-            'test_num': 100,
+            'test_num': 1000,
             'train_file': os.path.join(self.save_path, '/duffing_train.pkl'),
             'eval_file': os.path.join(self.save_path, '/duffing_eval.pkl'),
             'test_file': os.path.join(self.save_path, '/duffing_test.pkl'),

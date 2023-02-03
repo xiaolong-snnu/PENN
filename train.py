@@ -156,15 +156,15 @@ class PENN(nn.Module):
 
 def train_net(config):
     P = config.param
-    print('train file:', P['trai_file'])
+    print('train file:', P['train_file'])
     print('eval file:', P['eval_file'])
     print('cuda availibility', torch.cuda.is_available())
 
-    train_data = MyDataset(P['trai_file'])
+    train_data = MyDataset(P['train_file'])
     eval_data = MyDataset(P['eval_file'])
 
     num_epochs = P['num_epochs']
-    init_weight_file = P['init_weight_file']  #
+    init_weight_file = P['init_weight_file']
     param_name = P['param_name']
     model = PENN(train_data.X.shape[2],
                  P['lstm_fea_dim'],
@@ -350,26 +350,27 @@ def train(config):
     train_net(config)
 
 def test(config):
+
     gt, pred = test_net(config)
     draw_gt_vs_estimated(config)
 
 if __name__ == '__main__':
     # Step 1: Select a config file.
-    # from config_ou import Config, sampling_func  # train the OU process
+    from config_ou import Config, sampling_func  # train the OU process
     # from config_gene_switch import Config, sampling_func  # train the genetic toggle switch system
-    from config_duffing import Config, sampling_func  # train the Duffing system
+    # from config_duffing import Config, sampling_func  # train the Duffing system
 
     config = Config()
 
-    # Step 2 (optional): Modify the config file or modify it here.
+    # Step 2 (optional customization): Modify the config file or modify it here.
     # Before doing it, please read the comments in config_ou.py
     # for more instruction of the settings.
 
-    # config.param['train_num'] = 1000
+    # config.param['train_num'] = 1500
     # config.param['eval_num'] = 1000
     # config.param['architecture_name'] = 'debug'
     # config.param['drop_last'] = False
-    # config.param['init_weight_file'] = './data/ou/debug/model/model_00015.ckpt'
+    # config.param['init_weight_file'] = './data/duffing/debug/model/model_00006.ckpt'
 
     # Step 3: Sample the data.
     # Comment this line if the data has been generated.
